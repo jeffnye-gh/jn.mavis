@@ -4,7 +4,8 @@ project(Mavis)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Optionally disable Boost JSON if using nlohmann
+# jn.mavis
+# Disable Boost JSON if using nlohmann
 option(USE_NLOHMANN_JSON "Use nlohmann::json instead of boost::json" ON)
 
 find_package(Boost 1.74.0 REQUIRED COMPONENTS program_options)
@@ -17,6 +18,7 @@ if(NOT USE_NLOHMANN_JSON)
     message(STATUS "Using BOOST ${Boost_VERSION_STRING}")
     set(USE_BOOST_JSON TRUE)
 else()
+# jn.mavis
 # 1.74 does not supply json, 1st is 1.75
 # original cmake file didnt use find_package for boost::json, all
 # sub-cmakelists add the bare boost_json lib target.
@@ -40,13 +42,20 @@ if(USE_NLOHMANN_JSON)
     target_compile_definitions(mavis PRIVATE USE_NLOHMANN_JSON)
 else()
     message(STATUS "Using Boost::json")
+# jn.mavis
 # see above, 1.74 vs 1.75, so using bare boost_json
 #    find_package(Boost 1.74.0 REQUIRED COMPONENTS json)
 #    target_link_libraries(mavis PRIVATE Boost::json)
     target_link_libraries(mavis PRIVATE boost_json)
 endif()
 
+# This was an original comment
 # These may still use Boost program_options (leave as is)
-add_subdirectory(example EXCLUDE_FROM_ALL)
-add_subdirectory(test EXCLUDE_FROM_ALL)
+#add_subdirectory(example EXCLUDE_FROM_ALL)
+#add_subdirectory(test EXCLUDE_FROM_ALL)
+
+# jn.mavis
+# putting these back
+add_subdirectory(example)
+add_subdirectory(test)
 

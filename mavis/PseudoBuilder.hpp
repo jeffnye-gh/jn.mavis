@@ -44,21 +44,21 @@ public:
     {
         for (const auto &jfile : isa_files) {
             const json_value json = parseJSONWithException<BadISAFile>(jfile);
-#ifdef USE_NLOHMANN_JSON
+            #ifdef USE_NLOHMANN_JSON
             const auto& jobj = json;
-#else
+            #else
             const auto& jobj = json.as_array();
-#endif
+            #endif
             for (const auto &inst_value : jobj) {
-#ifdef USE_NLOHMANN_JSON
+                #ifdef USE_NLOHMANN_JSON
                 const auto& inst = inst_value;
                 if (inst.contains("pseudo")) {
                     std::string mnemonic = inst["pseudo"].get<std::string>();
-#else
+                #else
                 const auto& inst = inst_value.as_object();
                 if (const auto it = inst.find("pseudo"); it != inst.end()) {
                     std::string mnemonic = boost::json::value_to<std::string>(it->value());
-#endif
+                #endif
                     InstMetaData::PtrType meta = this->makeInstMetaData(mnemonic, inst);
                     Disassembler::PtrType dasm = std::make_shared<Disassembler>();
                     FormGeneric::PtrType form = std::make_shared<FormGeneric>(inst, meta);

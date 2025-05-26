@@ -1,16 +1,14 @@
 #pragma once
+#include "mavis/JsonMacros.hpp"
+
 #ifdef USE_NLOHMANN_JSON
 #include <nlohmann/json.hpp>
   using json_value = nlohmann::json;
   using json_object = nlohmann::json;
-  #define JSON_IT_VALUE(it) (it).value()
-  #define JSON_GET_BOOL(val) (val).get<bool>()
 #else
 #include <boost/json.hpp>
   using json_value = json_value;
   using json_object = json_object;
-  #define JSON_IT_VALUE(it) (it)->value()
-  #define JSON_GET_BOOL(val) (val).as_bool()
 #endif
 
 #include "elfio/elfio.hpp"
@@ -247,7 +245,7 @@ namespace mavis::extension_manager::riscv
         {
             if (const auto it = jobj.find(key); it != jobj.end())
             {
-               return JSON_GET_BOOL(JSON_IT_VALUE(it));
+               return JSON_GET_BOOL(JSON_IT_VAL(it));
             }
         
             return false;

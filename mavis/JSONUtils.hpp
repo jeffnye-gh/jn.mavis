@@ -3,18 +3,12 @@
 #include <fstream>
 #include <string_view>
 
-//#ifdef USE_NLOHMANN_JSON
-//#warning "Using nlohmann::json"
-//#else
-//#warning "Using boost::json"
-//#endif
-
 #ifdef USE_NLOHMANN_JSON
 #include <nlohmann/json.hpp>
 #else
 #include <boost/json.hpp>
-#include <boost/system/system_error.hpp>
 #endif
+#include <boost/system/system_error.hpp>
 
 namespace mavis
 {
@@ -109,11 +103,6 @@ namespace mavis
         {
             return std::string_view(lhs) < std::string_view(rhs);
         }
-
-//        inline bool operator()(const std::string& lhs, const nlohmann::json::string_t& rhs) const
-//        {
-//            return std::string_view(lhs) < std::string_view(rhs);
-//        }
 #else
         inline bool operator()(const boost::json::string& lhs, const std::string& rhs) const
         {

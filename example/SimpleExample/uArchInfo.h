@@ -8,10 +8,10 @@
 
 #ifdef USE_NLOHMANN_JSON
     #include <nlohmann/json.hpp>
-    namespace json = nlohmann;
+    using json = nlohmann::json;
 #else
     #include <boost/json.hpp>
-    namespace json = boost::json;
+    using json = boost::json;
 #endif
 
 #include "mavis/DecoderTypes.h"
