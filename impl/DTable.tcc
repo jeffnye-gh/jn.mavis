@@ -5,186 +5,204 @@
 #include "mavis/DTable.h" // Needed for CLION
 #include "mavis/JSONUtils.hpp"
 
+#ifdef USE_NLOHMANN_JSON
+#include <nlohmann/json.hpp>
+using json_object = nlohmann::json;
+#else
+#include <boost/json.hpp>
+using json_object = boost::json::object;
+#endif
+
 namespace mavis
 {
 
-    /**
-     * @brief parseInstInfo_
-     * @tparam InstType
-     * @tparam AnnotationType
-     * @tparam AnnotationTypeAllocator
-     * @param jfile
-     * @param inst
-     * @param mnemonic
-     */
     template <typename InstType, typename AnnotationType, typename AnnotationTypeAllocator>
     void DTable<InstType, AnnotationType, AnnotationTypeAllocator>::parseInstInfo_(
-        const std::string & jfile, const boost::json::object & inst, const std::string & mnemonic,
+        const std::string & jfile, const json_object & inst, const std::string & mnemonic,
         const MatchSet<Tag> & tags)
     {
-        // Convert the instruction stencil to binary
         Opcode istencil = 0;
-        if (const auto it = inst.find("stencil"); it != inst.end())
-        {
+#ifdef USE_NLOHMANN_JSON
+        if (inst.contains("stencil")) {
+            istencil = std::stoll(inst["stencil"].get<std::string>(), nullptr, 16);
+        }
+
+        FieldNameListType flist;
+        if (inst.contains("fixed")) {
+            flist = inst["fixed"].get<FieldNameListType>();
+        }
+
+        FieldNameSetType ignore_set;
+        if (inst.contains("ignore")) {
+            ignore_set = inst["ignore"].get<FieldNameSetType>();
+        }
+
+        ExtractorIF::PtrType override_extractor = nullptr;
+        if (inst.contains("xform")) {
+            override_extractor = extractors_.getExtractor(inst["xform"].get<std::string>());
+        }
+
+        std::string factory_name = mnemonic;
+        if (inst.contains("factory")) {
+            factory_name = inst["factory"].get<std::string>();
+        }
+
+        std::string xpand_name;
+        if (inst.contains("expand")) {
+            xpand_name = inst["expand"].get<std::string>();
+        }
+
+        if (inst.contains("overlay")) {
+            typename Overlay<InstType, AnnotationType>::PtrType olay =
+                std::make_shared<Overlay<InstType, AnnotationType>>(mnemonic, inst["overlay"], inst, override_extractor);
+#else
+        if (const auto it = inst.find("stencil"); it != inst.end()) {
             istencil = strtoll(it->value().as_string().c_str(), nullptr, 16);
         }
 
-        // Parse the fixed fields list, if present
         FieldNameListType flist;
-        if (const auto it = inst.find("fixed"); it != inst.end())
-        {
+        if (const auto it = inst.find("fixed"); it != inst.end()) {
             flist = boost::json::value_to<FieldNameListType>(it->value());
         }
 
-        // Parse the ignore fields list, if present
         FieldNameSetType ignore_set;
-        if (const auto it = inst.find("ignore"); it != inst.end())
-        {
+        if (const auto it = inst.find("ignore"); it != inst.end()) {
             ignore_set = boost::json::value_to<FieldNameSetType>(it->value());
         }
 
-        // Parse the xform (extraction form) override, if present
-        // const ExtractorIF::PtrType override_extractor = nullptr;
         ExtractorIF::PtrType override_extractor = nullptr;
-        if (const auto it = inst.find("xform"); it != inst.end())
-        {
+        if (const auto it = inst.find("xform"); it != inst.end()) {
             override_extractor = extractors_.getExtractor(boost::json::value_to<std::string>(it->value()));
         }
 
-        // Parse the factory name override, if present
-        // Defaults to being the same as the mnemonic
-        // std::string factory_name = inst["mnemonic"];
         std::string factory_name = mnemonic;
-        if (const auto it = inst.find("factory"); it != inst.end())
-        {
+        if (const auto it = inst.find("factory"); it != inst.end()) {
             factory_name = boost::json::value_to<std::string>(it->value());
         }
 
-        // Parse the expansion factory, if present
         std::string xpand_name;
-        if (const auto it = inst.find("expand"); it != inst.end())
-        {
+        if (const auto it = inst.find("expand"); it != inst.end()) {
             xpand_name = boost::json::value_to<std::string>(it->value());
         }
 
-        // Is this an instruction overlay?
-        if (const auto it = inst.find("overlay"); it != inst.end())
-        {
+        if (const auto it = inst.find("overlay"); it != inst.end()) {
             typename Overlay<InstType, AnnotationType>::PtrType olay =
-                std::make_shared<Overlay<InstType, AnnotationType>>(mnemonic, it->value().as_object(), inst,
-                                                                    override_extractor);
+                std::make_shared<Overlay<InstType, AnnotationType>>(mnemonic, it->value().as_object(), inst, override_extractor);
+#endif
             builder_->buildOverlay(olay, jfile);
-            // std::cout << *olay << std::endl;
             typename IFactory<InstType, AnnotationType>::PtrType ifact =
                 builder_->findIFact(olay->getBaseMnemonic());
-            if (ifact == nullptr)
-            {
-                throw BuildErrorOverlayBaseNotFound(olay->getMnemonic(), olay->getBaseMnemonic(),
-                                                    jfile);
+            if (ifact == nullptr) {
+                throw BuildErrorOverlayBaseNotFound(olay->getMnemonic(), olay->getBaseMnemonic(), jfile);
             }
             ifact->addOverlay(olay);
-        }
-        else
-        {
+        } else {
+#ifdef USE_NLOHMANN_JSON
+            const std::string form = inst["form"].get<std::string>();
+#else
             const std::string form = boost::json::value_to<std::string>(inst.at("form"));
+#endif
             const FormBase* form_wrap = forms_.findFormWrapper(form);
-            if (form_wrap == nullptr)
-            {
+            if (form_wrap == nullptr) {
                 throw BuildErrorUnknownForm(jfile, mnemonic, form);
             }
 
             InstMetaData::PtrType meta =
                 builder_->makeInstMetaData(mnemonic, inst, !xpand_name.empty(), tags);
-            try
-            {
+            try {
                 typename IFactoryIF<InstType, AnnotationType>::PtrType ifact =
                     build_(form_wrap, mnemonic, istencil, flist, ignore_set, factory_name,
                            xpand_name, override_extractor, meta);
 
-                // Check for encoding aliases for this factory and add them to the tree
                 StringListType alias_stencils;
-                if (const auto alias_it = inst.find("alias"); alias_it != inst.end())
-                {
+#ifdef USE_NLOHMANN_JSON
+                if (inst.contains("alias")) {
+                    alias_stencils = inst["alias"].get<StringListType>();
+#else
+                if (const auto alias_it = inst.find("alias"); alias_it != inst.end()) {
                     alias_stencils = boost::json::value_to<StringListType>(alias_it->value());
-                    for (const auto & astencil : alias_stencils)
-                    {
-                        Opcode opc = stoll(astencil, nullptr, 16);
+#endif
+                    for (const auto & astencil : alias_stencils) {
+                        Opcode opc = std::stoll(astencil, nullptr, 16);
                         build_(form_wrap, mnemonic, opc, flist, ignore_set, factory_name,
                                xpand_name, override_extractor, meta, ifact);
                     }
                 }
-            }
-            catch (const BuildErrorInstructionAlias & ex)
-            {
+            } catch (const BuildErrorInstructionAlias & ex) {
                 std::cerr << ex.what() << std::endl;
             }
         }
     }
 
-    /**
-     * DTable::configure
-     * @tparam InstType
-     * @tparam AnnotationType
-     * @tparam FileNamesPack
-     * @param args
-     */
     template <typename InstType, typename AnnotationType, typename AnnotationTypeAllocator>
     void DTable<InstType, AnnotationType, AnnotationTypeAllocator>::configure(
         const FileNameListType & isa_files, const MatchSet<Pattern> & inclusions,
         const MatchSet<Pattern> & exclusions)
     {
-        // Instructions with an "expand" or "overlay" clause must be parsed last
-        // since their factories must already exist for them to be registered.
         struct parseInstInfoArgs
         {
             const std::string jfile;
-            const boost::json::object inst;
+            const json_object inst;
             const std::string mnemonic;
             const MatchSet<Tag> tags;
 
-            parseInstInfoArgs(const std::string & jfile, const boost::json::object & inst,
-                              const std::string & mnemonic, const MatchSet<Tag> & tags) :
-                jfile(jfile),
-                inst(inst),
-                mnemonic(mnemonic),
-                tags(tags)
-            {
-            }
+            parseInstInfoArgs(const std::string & jfile, const json_object & inst,
+                              const std::string & mnemonic, const MatchSet<Tag> & tags)
+                : jfile(jfile), inst(inst), mnemonic(mnemonic), tags(tags)
+            {}
         };
 
         std::vector<parseInstInfoArgs> expansions;
 
-        // Now populate the default factories from the provided JSON files...
         for (const auto & jfile : isa_files)
         {
-            const boost::json::value json = parseJSONWithException<BadISAFile>(jfile);
-
+            const auto json = parseJSONWithException<BadISAFile>(jfile);
+#ifdef USE_NLOHMANN_JSON
+            const auto& jobj = json;
+#else
             const auto& jobj = json.as_array();
+#endif
 
-            // Read in the instructions JSON file and process fields that pertain to decoding...
             for (const auto & inst_value : jobj)
             {
+#ifdef USE_NLOHMANN_JSON
+                const auto& inst = inst_value;
+#else
                 const auto& inst = inst_value.as_object();
-
+#endif
                 std::string mnemonic;
+#ifdef USE_NLOHMANN_JSON
+                if (inst.contains("mnemonic"))
+                {
+                    mnemonic = inst["mnemonic"].get<std::string>();
+                    MatchSet<Tag> tags;
+                    if (inst.contains("tags"))
+                    {
+                        tags = MatchSet<Tag>(inst["tags"].get<std::vector<std::string>>());
+#else
                 if (const auto it = inst.find("mnemonic"); it != inst.end())
                 {
                     mnemonic = boost::json::value_to<std::string>(it->value());
-                    // We have an instruction... Look for filtering tag
                     MatchSet<Tag> tags;
                     if (const auto tag_it = inst.find("tags"); tag_it != inst.end())
                     {
                         tags = MatchSet<Tag>(boost::json::value_to<std::vector<std::string>>(tag_it->value()));
+#endif
+
                     }
 
-                    const bool is_expansion = inst.find("expand") != inst.end();
+                    const bool is_expansion =
+#ifdef USE_NLOHMANN_JSON
+                        inst.contains("expand");
+                    const bool is_overlay = inst.contains("overlay");
+#else
+                        inst.find("expand") != inst.end();
                     const bool is_overlay = inst.find("overlay") != inst.end();
+#endif
 
                     if ((inclusions.isEmpty() && exclusions.isEmpty())
                         || (inclusions.isEmpty() && tags.isEmpty()))
                     {
-                        // Inclusions & exclusions are empty, or inclusions empty and tags empty, no
-                        // filtering active
                         if (!is_expansion && !is_overlay)
                         {
                             parseInstInfo_(jfile, inst, mnemonic, tags);
@@ -213,43 +231,41 @@ namespace mavis
                             }
                         }
                     }
-                    // Otherwise, since tags.isEmpty(), we know inclusions are not empty and we
-                    // reject the instruction
                 }
+#ifdef USE_NLOHMANN_JSON
+                else if (inst.contains("pseudo"))
+#else
                 else if (inst.find("pseudo") != inst.end())
+#endif
                 {
-                    // Skip any pseudo instruction records, those are handled
-                    // by the pseudo builder configuration
                     continue;
                 }
                 else
                 {
-                    // If there's a stencil clause, provide that as part of the exception
-                    // to help the poor user find where he's missing a mnemonic
+#ifdef USE_NLOHMANN_JSON
+                    if (inst.contains("stencil"))
+                    {
+                        throw BuildErrorMissingMnemonic(jfile, inst["stencil"].get<std::string>());
+#else
                     if (const auto stencil_it = inst.find("stencil"); stencil_it != inst.end())
                     {
                         throw BuildErrorMissingMnemonic(jfile, boost::json::value_to<std::string>(stencil_it->value()));
+#endif
                     }
                     throw BuildErrorMissingMnemonic(jfile);
                 }
             }
         }
 
-        // Parse all expansion instructions
         for (auto & exp : expansions)
         {
             parseInstInfo_(exp.jfile, exp.inst, exp.mnemonic, exp.tags);
         }
-
-        // At this point, we could throw away the builder_
     }
 
-    /**
-     * DTable::build leaf IFactory and Special Case nodes
-     * @tparam FormType
-     * @param mnemonic
-     * @param istencil
-     */
+    // Remaining functions are JSON-agnostic
+    // buildLeaf_ and build_ are unchanged
+
     template <typename InstType, typename AnnotationType, typename AnnotationTypeAllocator>
     typename IFactoryIF<InstType, AnnotationType>::PtrType
     DTable<InstType, AnnotationType, AnnotationTypeAllocator>::buildLeaf_(
@@ -266,28 +282,14 @@ namespace mavis
             assert(currNode != nullptr);
         }
 
-        // If we're given an expansion, use that mnemonic instead
-        // if (!xpand_name.empty()) {
-        // mnemonic = xpand_name;
-        //}
-
-        // If we're not given an extraction form override, use
-        // the form specified by the FormType template parameter
         if (override_extractor == nullptr)
         {
             override_extractor = extractors_.getExtractor(form->getName());
         }
 
-        // IFactorySpecialCaseComposite<InstType, AnnotationType> *parent =  // just for now...
-        // dynamic_cast<IFactorySpecialCaseComposite<InstType, AnnotationType> *>(currNode);
         std::shared_ptr<IFactorySpecialCaseComposite<InstType, AnnotationType>>
-            parent = // just for now...
-            std::dynamic_pointer_cast<IFactorySpecialCaseComposite<InstType, AnnotationType>>(
-                currNode);
+            parent = std::dynamic_pointer_cast<IFactorySpecialCaseComposite<InstType, AnnotationType>>(currNode);
 
-        // If parent is NULL, then we're not at an IFactorySpecialCaseComposite node
-        // This happens when we're trying to build an instruction whose encoding is
-        // the same as a prior instruction, but the Forms of the two instructions are incompatible
         if (parent == nullptr)
         {
             throw BuildErrorOpcodeConflict(mnemonic, istencil);
@@ -298,33 +300,22 @@ namespace mavis
             meta->addFixedFields(flist);
         }
 
-        // Check for the presence of an aliased (shared) ifactory
         typename IFactoryIF<InstType, AnnotationType>::PtrType ifact;
         if (shared_ifact == nullptr)
         {
-            // Normal case: no alias, build a new ifactory
             ifact = builder_->build(mnemonic, factory_name, xpand_name, istencil, meta);
         }
         else
         {
-            // Alias case: use the given (shared) ifactory
             ifact = shared_ifact;
         }
 
-        // At LEAF...
         if (parent->getNode(istencil) == nullptr)
         {
-            // currNode->addIFactory(istencil, new IFactory<Form_R>(mnemonic));
-            //  IFactoryIF *ifact = builder_.build<FormType>(factory_name, istencil);
             parent->addIFactory(mnemonic, istencil, ifact, override_extractor);
-            // Show the newly added LEAF factory
-            // std::cout << "LEAF: " << parent->getNode(stencil)->getName() << std::endl;
         }
         else if (parent->getDefault() == nullptr)
         {
-            // Here, there's already a special case entry, but not a default. This can happen
-            // when the more specific encodings are processed before the more general encodings
-            // in the JSON file.
             parent->addDefaultIFactory(mnemonic, istencil, ifact, override_extractor);
         }
         else
@@ -336,12 +327,6 @@ namespace mavis
         return ifact;
     }
 
-    /**
-     * DTable::build (general case: branch nodes are dense composites)
-     * @tparam FormType
-     * @param mnemonic
-     * @param istencil
-     */
     template <typename InstType, typename AnnotationType, typename AnnotationTypeAllocator>
     typename IFactoryIF<InstType, AnnotationType>::PtrType
     DTable<InstType, AnnotationType, AnnotationTypeAllocator>::build_(
@@ -352,33 +337,28 @@ namespace mavis
         const typename IFactoryIF<InstType, AnnotationType>::PtrType shared_ifact)
     {
         assert(form != nullptr);
-
         typename IFactoryIF<InstType, AnnotationType>::PtrType currNode = root_;
 
         const FieldsType & fields = form->getOpcodeFields();
         const uint32_t n_fields = fields.size();
         assert(n_fields > 0);
 
-        // At ROOT node...
         if (currNode->getNode(istencil) == nullptr)
         {
             currNode->addIFactory(
                 istencil, typename IFactoryIF<InstType, AnnotationType>::PtrType(
                               new IFactoryDenseComposite<InstType, AnnotationType>(fields[0])));
         }
-        currNode = currNode->getNode(istencil); // Advance...
+        currNode = currNode->getNode(istencil);
         assert(currNode->getField() != nullptr);
         if (!currNode->getField()->isEquivalent(fields[0]))
         {
             throw BuildErrorFieldsIncompatible(mnemonic, *currNode->getField(), fields[0]);
         }
 
-        // At branch nodes...
         const uint32_t last_field = n_fields - 1;
         for (uint32_t i = 0; i < last_field; ++i)
         {
-            // Check whether to ignore this field... If so, we add the child as this
-            // node's default, otherwise, we add the child to the node's TRIE table
             if (ignore_set.find(fields[i].getName()) != ignore_set.end())
             {
                 if (currNode->getDefault() == nullptr)
@@ -387,7 +367,7 @@ namespace mavis
                         typename IFactoryIF<InstType, AnnotationType>::PtrType(
                             new IFactoryDenseComposite<InstType, AnnotationType>(fields[i + 1])));
                 }
-                currNode = currNode->getDefault(); // Advance...
+                currNode = currNode->getDefault();
             }
             else
             {
@@ -398,8 +378,9 @@ namespace mavis
                         typename IFactoryIF<InstType, AnnotationType>::PtrType(
                             new IFactoryDenseComposite<InstType, AnnotationType>(fields[i + 1])));
                 }
-                currNode = currNode->getNode(istencil); // Advance...
+                currNode = currNode->getNode(istencil);
             }
+
             assert(currNode->getField() != nullptr);
             if (!currNode->getField()->isEquivalent(fields[i + 1]))
             {
@@ -409,7 +390,6 @@ namespace mavis
             }
         }
 
-        // Add the special case exclusions node to the last field's node
         if (ignore_set.find(fields[last_field].getName()) != ignore_set.end())
         {
             if (currNode->getDefault() == nullptr)
@@ -417,7 +397,7 @@ namespace mavis
                 currNode->addDefaultIFactory(typename IFactoryIF<InstType, AnnotationType>::PtrType(
                     new IFactorySpecialCaseComposite<InstType, AnnotationType>()));
             }
-            currNode = currNode->getDefault(); // Advance...
+            currNode = currNode->getDefault();
         }
         else
         {
@@ -427,7 +407,7 @@ namespace mavis
                     istencil, typename IFactoryIF<InstType, AnnotationType>::PtrType(
                                   new IFactorySpecialCaseComposite<InstType, AnnotationType>()));
             }
-            currNode = currNode->getNode(istencil); // Advance...
+            currNode = currNode->getNode(istencil);
         }
 
         return buildLeaf_(form, currNode, mnemonic, istencil, flist, factory_name, xpand_name,
@@ -437,3 +417,4 @@ namespace mavis
 } // namespace mavis
 
 #endif // TCC_MAVIS_DTABLE
+

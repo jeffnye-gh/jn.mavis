@@ -1,9 +1,34 @@
 #pragma once
 
+#ifdef USE_NLOHMANN_JSON
+  #include <nlohmann/json.hpp>
+  using json = nlohmann::json;
+  using json_value = nlohmann::json;
+  using json_object = nlohmann::json;
+  #define JSON_GET(obj, key, type) ((obj).at(key).get<type>())
+#else
+  #include <boost/json.hpp>
+  using json = boost::json::object;
+  using json_value = json_value;
+  using json_object = json_object;
+  #define JSON_GET(obj, key, type) (boost::json::value_to<type>((obj).at(key)))
+#endif
+
+#ifdef USE_NLOHMANN_JSON
+#define JSON_CAST(value, type) ((value).get<type>())
+#else
+#define JSON_CAST(value, type) (boost::json::value_to<type>(value))
+#endif
+
+#ifdef USE_NLOHMANN_JSON
+  #define JSON_IT_VALUE(it) ((it).value())
+#else
+  #define JSON_IT_VALUE(it) ((it)->value())
+#endif
+
 #include <string>
 #include <map>
 
-#include <boost/json.hpp>
 #include "DecoderExceptions.h"
 #include "Form.h"
 #include "Tag.hpp"
@@ -18,8 +43,6 @@ namespace mavis
 
     class InstMetaData
     {
-      private:
-        using json = boost::json::object;
         typedef typename std::vector<std::string> FieldNameListType;
         typedef typename std::vector<std::string> ISAExtListType;
 
@@ -315,7 +338,8 @@ namespace mavis
             // Word operand types
             if (const auto it = inst.find("w-oper"); it != inst.end())
             {
-                const auto& it_value = it->value();
+//                const auto& it_value = it->value();
+                const auto& it_value = JSON_IT_VALUE(it);
                 if (it_value == "all")
                 {
                     setAllOperandsType_(OperandTypes::WORD);
@@ -323,7 +347,9 @@ namespace mavis
                 else
                 {
                     FieldNameListType flist;
-                    flist = boost::json::value_to<FieldNameListType>(it_value);
+//                    flist = boost::json::value_to<FieldNameListType>(it_value);
+                    const auto& it_value = JSON_IT_VALUE(it);
+                    flist = JSON_CAST(it_value, FieldNameListType);
                     setOperandsType_(flist, OperandTypes::WORD);
                 }
             }
@@ -331,7 +357,8 @@ namespace mavis
             // Long operand types
             if (const auto it = inst.find("l-oper"); it != inst.end())
             {
-                const auto& it_value = it->value();
+//                const auto& it_value = it->value();
+                const auto& it_value = JSON_IT_VALUE(it);
                 if (it_value == "all")
                 {
                     setAllOperandsType_(OperandTypes::LONG);
@@ -339,7 +366,9 @@ namespace mavis
                 else
                 {
                     FieldNameListType flist;
-                    flist = boost::json::value_to<FieldNameListType>(it_value);
+//                    flist = boost::json::value_to<FieldNameListType>(it_value);
+                    const auto& it_value = JSON_IT_VALUE(it);
+                    flist = JSON_CAST(it_value, FieldNameListType);
                     setOperandsType_(flist, OperandTypes::LONG);
                 }
             }
@@ -347,7 +376,9 @@ namespace mavis
             // Single operand types
             if (const auto it = inst.find("s-oper"); it != inst.end())
             {
-                const auto& it_value = it->value();
+//                const auto& it_value = it->value();
+                const auto& it_value = JSON_IT_VALUE(it);
+
                 if (it_value == "all")
                 {
                     setAllOperandsType_(OperandTypes::SINGLE);
@@ -355,7 +386,9 @@ namespace mavis
                 else
                 {
                     FieldNameListType flist;
-                    flist = boost::json::value_to<FieldNameListType>(it_value);
+//                    flist = boost::json::value_to<FieldNameListType>(it_value);
+                    const auto& it_value = JSON_IT_VALUE(it);
+                    flist = JSON_CAST(it_value, FieldNameListType);
                     setOperandsType_(flist, OperandTypes::SINGLE);
                 }
             }
@@ -363,7 +396,8 @@ namespace mavis
             // Double operand types
             if (const auto it = inst.find("d-oper"); it != inst.end())
             {
-                const auto& it_value = it->value();
+//                const auto& it_value = it->value();
+                const auto& it_value = JSON_IT_VALUE(it);
                 if (it_value == "all")
                 {
                     setAllOperandsType_(OperandTypes::DOUBLE);
@@ -371,7 +405,9 @@ namespace mavis
                 else
                 {
                     FieldNameListType flist;
-                    flist = boost::json::value_to<FieldNameListType>(it_value);
+//                    flist = boost::json::value_to<FieldNameListType>(it_value);
+                    const auto& it_value = JSON_IT_VALUE(it);
+                    flist = JSON_CAST(it_value, FieldNameListType);
                     setOperandsType_(flist, OperandTypes::DOUBLE);
                 }
             }
@@ -379,7 +415,8 @@ namespace mavis
             // Quad operand types
             if (const auto it = inst.find("q-oper"); it != inst.end())
             {
-                const auto& it_value = it->value();
+//                const auto& it_value = it->value();
+                const auto& it_value = JSON_IT_VALUE(it);
                 if (it_value == "all")
                 {
                     setAllOperandsType_(OperandTypes::QUAD);
@@ -387,7 +424,14 @@ namespace mavis
                 else
                 {
                     FieldNameListType flist;
-                    flist = boost::json::value_to<FieldNameListType>(it_value);
+//                    flist = boost::json::value_to<FieldNameListType>(it_value);
+                    const auto& it_value = JSON_IT_VALUE(it);
+                    flist = JSON_CAST(it_value, FieldNameListType);
+//                    #ifdef USE_NLOHMANN_JSON
+//                    flist = it_value.get<FieldNameListType>();
+//                    #else
+//                    flist = boost::json::value_to<FieldNameListType>(it_value);
+//                    #endif
                     setOperandsType_(flist, OperandTypes::QUAD);
                 }
             }
@@ -395,7 +439,8 @@ namespace mavis
             // Vector operand types
             if (const auto it = inst.find("v-oper"); it != inst.end())
             {
-                const auto& it_value = it->value();
+//                const auto& it_value = it->value();
+                const auto& it_value = JSON_IT_VALUE(it);
                 if (it_value == "all")
                 {
                     setAllOperandsType_(OperandTypes::VECTOR);
@@ -403,7 +448,9 @@ namespace mavis
                 else
                 {
                     FieldNameListType flist;
-                    flist = boost::json::value_to<FieldNameListType>(it_value);
+//                    flist = boost::json::value_to<FieldNameListType>(it_value);
+                    const auto& it_value = JSON_IT_VALUE(it);
+                    flist = JSON_CAST(it_value, FieldNameListType);
                     setOperandsType_(flist, OperandTypes::VECTOR);
                 }
             }
@@ -412,7 +459,12 @@ namespace mavis
             // "width" (e.g. 32, 64, etc.) and 'X' is an extension letter
             if (const auto it = inst.find("isa"); it != inst.end())
             {
-                ISAExtListType ilist = boost::json::value_to<ISAExtListType>(it->value());
+//                ISAExtListType ilist = boost::json::value_to<ISAExtListType>(it->value());
+               #ifdef USE_NLOHMANN_JSON
+               ISAExtListType ilist = it->get<ISAExtListType>();
+               #else
+               ISAExtListType ilist = boost::json::value_to<ISAExtListType>(it->value());
+               #endif
                 if (!ilist.empty())
                 {
                     std::smatch matches;
@@ -433,8 +485,8 @@ namespace mavis
                             else
                             {
                                 // Invalid ISA extension letter
-                                throw BuildErrorInvalidISAExtension(boost::json::value_to<std::string>(inst.at("mnemonic")), s,
-                                                                    matches[2].str());
+//                                throw BuildErrorInvalidISAExtension(boost::json::value_to<std::string>(inst.at("mnemonic")), s, matches[2].str());
+                                throw BuildErrorInvalidISAExtension(JSON_GET(inst, "mnemonic", std::string), s, matches[2].str());
                             }
                             if (matches[1].length() != 0)
                             {
@@ -443,7 +495,8 @@ namespace mavis
                                 if ((n == 0) || ((n & (n - 1)) != 0))
                                 {
                                     // Not a non-zero power of 2
-                                    throw BuildErrorInvalidISAWidth(boost::json::value_to<std::string>(inst.at("mnemonic")), s, n);
+//                                    throw BuildErrorInvalidISAWidth(boost::json::value_to<std::string>(inst.at("mnemonic")), s, n);
+                                    throw BuildErrorInvalidISAWidth(JSON_GET(inst, "mnemonic", std::string), s, n);
                                 }
                                 setISAWidth(itr->second, n);
                             }
@@ -451,7 +504,8 @@ namespace mavis
                         else
                         {
                             // Malformed ISA extension string
-                            throw BuildErrorMalformedISAExtension(boost::json::value_to<std::string>(inst.at("mnemonic")), s);
+//                            throw BuildErrorMalformedISAExtension(boost::json::value_to<std::string>(inst.at("mnemonic")), s);
+                            throw BuildErrorMalformedISAExtension(JSON_GET(inst, "mnemonic", std::string), s);
                         }
                     }
                 }
@@ -518,7 +572,8 @@ namespace mavis
             // Merge tags from the overlay instruction and the base
             if (const auto it = inst.find("tags"); it != inst.end())
             {
-                tags_.merge(boost::json::value_to<std::vector<std::string>>(it->value()));
+//                tags_.merge(boost::json::value_to<std::vector<std::string>>(it->value()));
+                tags_.merge(JSON_CAST(*it, std::vector<std::string>));
             }
         }
 
@@ -769,13 +824,15 @@ namespace mavis
             // Merge type information from the overlay instruction and the base
             if (const auto it = inst.find("type"); it != inst.end())
             {
-                const FieldNameListType tlist = boost::json::value_to<FieldNameListType>(it->value());
+//                const FieldNameListType tlist = boost::json::value_to<FieldNameListType>(it->value());
+                const FieldNameListType tlist = JSON_CAST(*it, FieldNameListType);
                 for (const auto & t : tlist)
                 {
                     const auto itr = tmap_.find(t);
                     if (itr == tmap_.end())
                     {
-                        throw BuildErrorUnknownType(boost::json::value_to<std::string>(inst.at("mnemonic")), t);
+//                        throw BuildErrorUnknownType(boost::json::value_to<std::string>(inst.at("mnemonic")), t);
+                        throw BuildErrorUnknownType(JSON_GET(inst, "mnemonic", std::string), t);
                     }
                     inst_types_ |=
                         static_cast<std::underlying_type_t<InstructionTypes>>(itr->second);
@@ -788,11 +845,13 @@ namespace mavis
             // Merge data size information from the overlay instruction and the base
             if (const auto it = inst.find("data"); it != inst.end())
             {
-                data_size_ = boost::json::value_to<uint32_t>(it->value());
+//                data_size_ = boost::json::value_to<uint32_t>(it->value());
+                data_size_ = JSON_CAST(*it, uint32_t);
                 // Check positive, power-of-2 or zero
                 if ((data_size_ & (data_size_ - 1)) || (int32_t(data_size_) < 0))
                 {
-                    throw BuildErrorInvalidDataSize(boost::json::value_to<std::string>(inst.at("mnemonic")), data_size_);
+//                    throw BuildErrorInvalidDataSize(boost::json::value_to<std::string>(inst.at("mnemonic")), data_size_);
+                    throw BuildErrorInvalidDataSize(JSON_GET(inst,"mnemonic",std::string), data_size_);
                 }
             }
         }

@@ -1,4 +1,17 @@
 #pragma once
+#ifdef USE_NLOHMANN_JSON
+#include <nlohmann/json.hpp>
+  using json_value = nlohmann::json;
+  using json_object = nlohmann::json;
+  #define JSON_IT_VALUE(it) (it).value()
+  #define JSON_GET_BOOL(val) (val).get<bool>()
+#else
+#include <boost/json.hpp>
+  using json_value = json_value;
+  using json_object = json_object;
+  #define JSON_IT_VALUE(it) (it)->value()
+  #define JSON_GET_BOOL(val) (val).as_bool()
+#endif
 
 #include "elfio/elfio.hpp"
 #include "mavis/ExtensionManager.hpp"
@@ -230,26 +243,26 @@ namespace mavis::extension_manager::riscv
             return lowercase;
         }
 
-        static bool getBoolJSONValue_(const boost::json::object & jobj, const std::string & key)
+        static bool getBoolJSONValue_(const json_object & jobj, const std::string & key)
         {
             if (const auto it = jobj.find(key); it != jobj.end())
             {
-                return it->value().as_bool();
+               return JSON_GET_BOOL(JSON_IT_VALUE(it));
             }
-
+        
             return false;
         }
 
         // Handles the case where someone specifies an XLEN as a string - just convert
         // it to an int
-        uint32_t convertMultiArchString_(const boost::json::string & multiarch_str) const override
+        uint32_t convertMultiArchString_(const std::string & multiarch_str) const override
         {
             return std::stoul(multiarch_str.c_str());
         }
 
         void processArchSpecificExtensionInfo_(RISCVXLENState & arch_extensions,
                                                const std::string & ext,
-                                               const boost::json::object & ext_obj,
+                                               const json_object & ext_obj,
                                                const ExtensionType extension_type) const override
         {
             if (getBoolJSONValue_(ext_obj, "is_base_extension"))

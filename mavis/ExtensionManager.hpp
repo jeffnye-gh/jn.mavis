@@ -1,5 +1,19 @@
 #pragma once
 
+#ifdef USE_NLOHMANN_JSON
+    #include <nlohmann/json.hpp>
+    using json_value = nlohmann::json;
+    using json_object = nlohmann::json;
+    using json = nlohmann::json;
+#else
+    #include <boost/json.hpp>
+    using json_value = boost::json::value;
+    using json_object = boost::json::object;
+    using json = boost::json;
+#endif
+
+#include <boost/system/error_code.hpp>
+
 #include <filesystem>
 #include <list>
 #include <numeric>
@@ -36,7 +50,7 @@ namespace mavis::extension_manager
     {
         public:
             JSONParseError(const std::string& path, const boost::system::error_code& ec) :
-                ExtensionManagerException("Error parsing file " + path + ": " + ec.to_string())
+                ExtensionManagerException("Error parsing file " + path + ": " + ec.message())
             {
             }
     };
@@ -231,40 +245,103 @@ namespace mavis::extension_manager
         using value_type = std::vector<std::string>;
     };
 
-    template <typename DataT> struct JSONVectorConverter
+//    template <typename DataT> struct JSONVectorConverter
+//    {
+//        static std::vector<DataT> get(const json_value & obj)
+//        {
+//            if (obj.is_array())
+//            {
+//                return json::value_to<std::vector<DataT>>(obj);
+//            }
+//
+//            return std::vector<DataT>(1, json::value_to<DataT>(obj));
+//        }
+//    };
+
+    template <typename DataT>
+    struct JSONVectorConverter
     {
-        static std::vector<DataT> get(const boost::json::value & obj)
+        static std::vector<DataT> get(const json_value &obj)
         {
+            #ifdef USE_NLOHMANN_JSON
             if (obj.is_array())
             {
-                return boost::json::value_to<std::vector<DataT>>(obj);
-            }
-
-            return std::vector<DataT>(1, boost::json::value_to<DataT>(obj));
-        }
-    };
-
-    template <typename DataT> struct JSONVectorConverter<std::vector<DataT>>
-    {
-        static std::vector<std::vector<DataT>> get(const boost::json::value & obj)
-        {
-            std::vector<std::vector<DataT>> result;
-
-            if (obj.is_array())
-            {
-                for (const auto & elem : obj.as_array())
+                std::vector<DataT> result;
+                for (const auto &elem : obj)
                 {
-                    result.emplace_back(JSONVectorConverter<DataT>::get(elem));
+                    result.emplace_back(elem.get<DataT>());
                 }
+                return result;
             }
-            else
+            return std::vector<DataT>(1, obj.get<DataT>());
+            #else
+            if (obj.is_array())
             {
-                result.emplace_back(std::vector<DataT>(1, boost::json::value_to<DataT>(obj)));
+                return json::value_to<std::vector<DataT>>(obj);
             }
-
-            return result;
+            return std::vector<DataT>(1, json::value_to<DataT>(obj));
+            #endif
         }
     };
+
+//    template <typename DataT> struct JSONVectorConverter<std::vector<DataT>>
+//    {
+//        static std::vector<std::vector<DataT>> get(const json_value & obj)
+//        {
+//            std::vector<std::vector<DataT>> result;
+//
+//            if (obj.is_array())
+//            {
+//                for (const auto & elem : obj.as_array())
+//                {
+//                    result.emplace_back(JSONVectorConverter<DataT>::get(elem));
+//                }
+//            }
+//            else
+//            {
+//                result.emplace_back(std::vector<DataT>(1, json::value_to<DataT>(obj)));
+//            }
+//
+//            return result;
+//        }
+//    };
+
+template <typename DataT>
+struct JSONVectorConverter<std::vector<DataT>>
+{
+    static std::vector<std::vector<DataT>> get(const json_value &obj)
+    {
+        std::vector<std::vector<DataT>> result;
+
+#ifdef USE_NLOHMANN_JSON
+        if (obj.is_array())
+        {
+            for (const auto &elem : obj)
+            {
+                result.emplace_back(JSONVectorConverter<DataT>::get(elem));
+            }
+        }
+        else
+        {
+            result.emplace_back(std::vector<DataT>{ obj.get<DataT>() });
+        }
+#else
+        if (obj.is_array())
+        {
+            for (const auto &elem : obj.as_array())
+            {
+                result.emplace_back(JSONVectorConverter<DataT>::get(elem));
+            }
+        }
+        else
+        {
+            result.emplace_back(std::vector<DataT>(1, json::value_to<DataT>(obj)));
+        }
+#endif
+
+        return result;
+    }
+};
 
     class ExtensionInfoBase;
     using ExtensionInfoBasePtr = std::shared_ptr<ExtensionInfoBase>;
@@ -698,7 +775,7 @@ namespace mavis::extension_manager
             return *getExtensionInfo_(extension);
         }
 
-        ExtensionInfo & addExtension(const std::string & extension, const boost::json::string & json = "")
+        ExtensionInfo & addExtension(const std::string & extension, const std::string & json = "")
         {
             if (const auto it = extensions_.find(extension); it != extensions_.end())
             {
@@ -1028,52 +1105,132 @@ namespace mavis::extension_manager
         };
 
         virtual void processArchSpecificExtensionInfo_(ExtensionState &, const std::string &,
-                                                       const boost::json::object &,
+                                                       const json_object &,
                                                        const ExtensionType) const
         {
         }
 
-        virtual uint32_t convertMultiArchString_(const boost::json::string & multiarch_str) const = 0;
+        virtual uint32_t convertMultiArchString_(const std::string & multiarch_str) const = 0;
 
-        virtual std::vector<uint32_t>
-        convertMultiArchVector_(const boost::json::array & multiarch_str_vec) const
+//        virtual std::vector<uint32_t>
+//        convertMultiArchVector_(const array & multiarch_str_vec) const
+//        {
+//            std::vector<uint32_t> arches;
+//            arches.resize(multiarch_str_vec.size());
+//
+//            std::transform(multiarch_str_vec.begin(), multiarch_str_vec.end(), arches.begin(),
+//                           [this](const json_value & multiarch_str)
+//                           { return convertMultiArchString_(multiarch_str.as_string()); });
+//
+//            return arches;
+//        }
+//
+virtual std::vector<uint32_t>
+convertMultiArchVector_(const json_value & multiarch_str_vec) const
+{
+    std::vector<uint32_t> arches;
+
+#ifdef USE_NLOHMANN_JSON
+    if (!multiarch_str_vec.is_array())
+        return arches;
+
+    arches.resize(multiarch_str_vec.size());
+
+    std::transform(multiarch_str_vec.begin(), multiarch_str_vec.end(), arches.begin(),
+                   [this](const json_value & multiarch_str)
+                   {
+                       return convertMultiArchString_(multiarch_str.get<std::string>());
+                   });
+#else
+    const auto & arr = multiarch_str_vec.as_array();
+    arches.resize(arr.size());
+
+    std::transform(arr.begin(), arr.end(), arches.begin(),
+                   [this](const json_value & multiarch_str)
+                   {
+                       return convertMultiArchString_(multiarch_str.as_string());
+                   });
+#endif
+
+    return arches;
+}
+
+//        virtual std::vector<uint32_t>
+//        getMultiArchVector_(const json_value & multiarch_obj) const
+//        {
+//            if (multiarch_obj.is_array())
+//            {
+//                const auto& multiarch_array = multiarch_obj.as_array();
+//
+//                if (!multiarch_array.empty())
+//                {
+//                    if (multiarch_array.front().is_string())
+//                    {
+//                        return convertMultiArchVector_(multiarch_array);
+//                    }
+//                    else if (multiarch_array.front().is_number())
+//                    {
+//                        return json::value_to<std::vector<uint32_t>>(multiarch_obj);
+//                    }
+//                }
+//
+//                throw InvalidJSONValueException(getMultiArchKey_());
+//            }
+//            else
+//            {
+//                return std::vector<uint32_t>(1, json::value_to<uint32_t>(multiarch_obj));
+//            }
+//        }
+
+virtual std::vector<uint32_t>
+getMultiArchVector_(const json_value & multiarch_obj) const
+{
+#ifdef USE_NLOHMANN_JSON
+    if (multiarch_obj.is_array())
+    {
+        if (!multiarch_obj.empty())
         {
-            std::vector<uint32_t> arches;
-            arches.resize(multiarch_str_vec.size());
-
-            std::transform(multiarch_str_vec.begin(), multiarch_str_vec.end(), arches.begin(),
-                           [this](const boost::json::value & multiarch_str)
-                           { return convertMultiArchString_(multiarch_str.as_string()); });
-
-            return arches;
+            if (multiarch_obj.front().is_string())
+            {
+                return convertMultiArchVector_(multiarch_obj);
+            }
+            else if (multiarch_obj.front().is_number())
+            {
+                return multiarch_obj.get<std::vector<uint32_t>>();
+            }
         }
 
-        virtual std::vector<uint32_t>
-        getMultiArchVector_(const boost::json::value & multiarch_obj) const
+        throw InvalidJSONValueException(getMultiArchKey_());
+    }
+    else
+    {
+        return std::vector<uint32_t>(1, multiarch_obj.get<uint32_t>());
+    }
+#else
+    if (multiarch_obj.is_array())
+    {
+        const auto& multiarch_array = multiarch_obj.as_array();
+
+        if (!multiarch_array.empty())
         {
-            if (multiarch_obj.is_array())
+            if (multiarch_array.front().is_string())
             {
-                const auto& multiarch_array = multiarch_obj.as_array();
-
-                if (!multiarch_array.empty())
-                {
-                    if (multiarch_array.front().is_string())
-                    {
-                        return convertMultiArchVector_(multiarch_array);
-                    }
-                    else if (multiarch_array.front().is_number())
-                    {
-                        return boost::json::value_to<std::vector<uint32_t>>(multiarch_obj);
-                    }
-                }
-
-                throw InvalidJSONValueException(getMultiArchKey_());
+                return convertMultiArchVector_(multiarch_array);
             }
-            else
+            else if (multiarch_array.front().is_number())
             {
-                return std::vector<uint32_t>(1, boost::json::value_to<uint32_t>(multiarch_obj));
+                return json::value_to<std::vector<uint32_t>>(multiarch_obj);
             }
         }
+
+        throw InvalidJSONValueException(getMultiArchKey_());
+    }
+    else
+    {
+        return std::vector<uint32_t>(1, json::value_to<uint32_t>(multiarch_obj));
+    }
+#endif
+}
 
         virtual const char* getMultiArchKey_() const { return nullptr; }
 
@@ -1147,7 +1304,7 @@ namespace mavis::extension_manager
 
         template <DependencyType dep_type>
         static std::vector<typename DependencyTraits<dep_type>::value_type>
-        getDependencyValue_(const boost::json::value & obj)
+        getDependencyValue_(const json_value & obj)
         {
             return JSONVectorConverter<typename DependencyTraits<dep_type>::value_type>::get(obj);
         }
@@ -1175,123 +1332,258 @@ namespace mavis::extension_manager
         }
 
         template <RuleType rule_type>
-        static std::vector<std::string> getRuleValue_(const boost::json::value & obj)
+        static std::vector<std::string> getRuleValue_(const json_value & obj)
         {
             return JSONVectorConverter<std::string>::get(obj);
         }
 
-        template <bool is_normal_extension, DependencyType dep_type>
-        static void processOptionalDependency_(ExtensionState & extensions, const std::string & ext,
-                                               const boost::json::object & obj)
+//        template <bool is_normal_extension, DependencyType dep_type>
+//        static void processOptionalDependency_(ExtensionState & extensions, const std::string & ext,
+//                                               const json_object & obj)
+//        {
+//            constexpr const char* key = getDependencyKey_<dep_type>();
+//
+//            if (const auto it = obj.find(key); it != obj.end())
+//            {
+//                if constexpr (!isDependencyAllowed_<is_normal_extension, dep_type>())
+//                {
+//                    throw MetaExtensionUnexpectedJSONKeyException(key);
+//                }
+//
+//                extensions.template addDependency<dep_type>(ext,
+//                                                            getDependencyValue_<dep_type>(it->value()));
+//            }
+//        }
+template <bool is_normal_extension, DependencyType dep_type>
+static void processOptionalDependency_(ExtensionState & extensions, const std::string & ext,
+                                       const json_object & obj)
+{
+    constexpr const char* key = getDependencyKey_<dep_type>();
+
+    if (const auto it = obj.find(key); it != obj.end())
+    {
+        if constexpr (!isDependencyAllowed_<is_normal_extension, dep_type>())
         {
-            constexpr const char* key = getDependencyKey_<dep_type>();
-
-            if (const auto it = obj.find(key); it != obj.end())
-            {
-                if constexpr (!isDependencyAllowed_<is_normal_extension, dep_type>())
-                {
-                    throw MetaExtensionUnexpectedJSONKeyException(key);
-                }
-
-                extensions.template addDependency<dep_type>(ext,
-                                                            getDependencyValue_<dep_type>(it->value()));
-            }
+            throw MetaExtensionUnexpectedJSONKeyException(key);
         }
 
-        template <bool is_normal_extension, RuleType rule_type>
-        static void processRule_(ExtensionState & extensions, const std::string & ext,
-                                 const boost::json::object & obj)
+#ifdef USE_NLOHMANN_JSON
+        const json_value & val = *it;
+#else
+        const json_value & val = it->value();
+#endif
+
+        extensions.template addDependency<dep_type>(ext,
+                                                    getDependencyValue_<dep_type>(val));
+    }
+}
+
+
+//        template <bool is_normal_extension, RuleType rule_type>
+//        static void processRule_(ExtensionState & extensions, const std::string & ext,
+//                                 const json_object & obj)
+//        {
+//            constexpr const char* key = getRuleKey_<rule_type>();
+//
+//            if (const auto it = obj.find(key); it != obj.end())
+//            {
+//                if constexpr (!isRuleAllowed_<is_normal_extension, rule_type>())
+//                {
+//                    throw MetaExtensionUnexpectedJSONKeyException(key);
+//                }
+//
+//                extensions.template addRule<rule_type>(ext, getRuleValue_<rule_type>(it->value()));
+//            }
+//        }
+
+template <bool is_normal_extension, RuleType rule_type>
+static void processRule_(ExtensionState & extensions, const std::string & ext,
+                         const json_object & obj)
+{
+    constexpr const char* key = getRuleKey_<rule_type>();
+
+    if (const auto it = obj.find(key); it != obj.end())
+    {
+        if constexpr (!isRuleAllowed_<is_normal_extension, rule_type>())
         {
-            constexpr const char* key = getRuleKey_<rule_type>();
-
-            if (const auto it = obj.find(key); it != obj.end())
-            {
-                if constexpr (!isRuleAllowed_<is_normal_extension, rule_type>())
-                {
-                    throw MetaExtensionUnexpectedJSONKeyException(key);
-                }
-
-                extensions.template addRule<rule_type>(ext, getRuleValue_<rule_type>(it->value()));
-            }
+            throw MetaExtensionUnexpectedJSONKeyException(key);
         }
 
-        template <typename T>
-        static T getRequiredJSONValue_(const boost::json::value & jobj, const std::string & key)
+#ifdef USE_NLOHMANN_JSON
+        const json_value & val = *it;
+#else
+        const json_value & val = it->value();
+#endif
+
+        extensions.template addRule<rule_type>(ext, getRuleValue_<rule_type>(val));
+    }
+}
+
+//        template <typename T>
+//        static T getRequiredJSONValue_(const json_value & jobj, const std::string & key)
+//        {
+//            try
+//            {
+//                return json::value_to<T>(jobj.at(key));
+//            }
+////            catch (const boost::system::system_error &)
+//#ifdef USE_NLOHMANN_JSON
+//            catch (const json::type_error &)
+//#else
+//            catch (const boost::system::system_error &)
+//#endif
+//            {
+//                throw MissingRequiredJSONKeyException(key);
+//            }
+//        }
+
+template <typename T>
+static T getRequiredJSONValue_(const json_value & jobj, const std::string & key)
+{
+    try
+    {
+#ifdef USE_NLOHMANN_JSON
+        return jobj.at(key).get<T>();
+#else
+        return json::value_to<T>(jobj.at(key));
+#endif
+    }
+#ifdef USE_NLOHMANN_JSON
+    catch (const json::type_error &)
+#else
+    catch (const boost::system::system_error &)
+#endif
+    {
+        throw MissingRequiredJSONKeyException(key);
+    }
+}
+
+//        template <ExtensionType extension_type>
+//        void processExtension_(const json_object & ext_obj)
+//        {
+//            static constexpr bool is_normal_extension = extension_type == ExtensionType::NORMAL;
+//            static constexpr bool is_config_extension = extension_type == ExtensionType::CONFIG;
+//
+//            const std::string ext = getRequiredJSONValue_<std::string>(ext_obj, "extension");
+//
+//            std::vector<uint32_t> arches;
+//
+//            const char* multiarch_key = getMultiArchKey_();
+//
+//            if (multiarch_key)
+//            {
+//                if (const auto it = ext_obj.find(multiarch_key); it != ext_obj.end())
+//                {
+//                    arches = getMultiArchVector_(it->value());
+//                }
+//                else
+//                {
+//                    throw MissingRequiredJSONKeyException(multiarch_key);
+//                }
+//            }
+//            else
+//            {
+//                arches.emplace_back(0);
+//            }
+//
+//            for (const auto arch : arches)
+//            {
+//                auto & arch_extensions =
+//                    extensions_.try_emplace(arch, arch, unknown_extension_action_).first->second;
+//
+//                if constexpr (is_normal_extension)
+//                {
+//                    if (auto json_it = ext_obj.find("json"); json_it != ext_obj.end())
+//                    {
+//                        arch_extensions.addExtension(ext, json_it->value().as_string());
+//                    }
+//                    else
+//                    {
+//                        arch_extensions.addExtension(ext);
+//                    }
+//                }
+//                else if constexpr (is_config_extension)
+//                {
+//                    arch_extensions.addConfigExtension(ext);
+//                }
+//
+//                processArchSpecificExtensionInfo_(arch_extensions, ext, ext_obj, extension_type);
+//                processOptionalDependency_<is_normal_extension, DependencyType::META>( arch_extensions, ext, ext_obj);
+//                processOptionalDependency_<is_normal_extension, DependencyType::ALIAS>( arch_extensions, ext, ext_obj);
+//                processOptionalDependency_<is_normal_extension, DependencyType::ENABLES>( arch_extensions, ext, ext_obj);
+//                processOptionalDependency_<is_normal_extension, DependencyType::ENABLING>( arch_extensions, ext, ext_obj);
+//                processRule_<is_normal_extension, RuleType::REQUIRED>(arch_extensions, ext, ext_obj);
+//                processRule_<is_normal_extension, RuleType::CONFLICT>(arch_extensions, ext, ext_obj);
+//            }
+//        }
+
+template <ExtensionType extension_type>
+void processExtension_(const json_object & ext_obj)
+{
+    static constexpr bool is_normal_extension = extension_type == ExtensionType::NORMAL;
+    static constexpr bool is_config_extension = extension_type == ExtensionType::CONFIG;
+
+    const std::string ext = getRequiredJSONValue_<std::string>(ext_obj, "extension");
+
+    std::vector<uint32_t> arches;
+
+    const char* multiarch_key = getMultiArchKey_();
+
+    if (multiarch_key)
+    {
+        if (const auto it = ext_obj.find(multiarch_key); it != ext_obj.end())
         {
-            try
-            {
-                return boost::json::value_to<T>(jobj.at(key));
-            }
-            catch (const boost::system::system_error &)
-            {
-                throw MissingRequiredJSONKeyException(key);
-            }
+#ifdef USE_NLOHMANN_JSON
+            const json_value & val = it.value();
+#else
+            const json_value & val = it->value();
+#endif
+            arches = getMultiArchVector_(val);
         }
-
-        template <ExtensionType extension_type>
-        void processExtension_(const boost::json::object & ext_obj)
+        else
         {
-            static constexpr bool is_normal_extension = extension_type == ExtensionType::NORMAL;
-            static constexpr bool is_config_extension = extension_type == ExtensionType::CONFIG;
+            throw MissingRequiredJSONKeyException(multiarch_key);
+        }
+    }
+    else
+    {
+        arches.emplace_back(0);
+    }
 
-            const std::string ext = getRequiredJSONValue_<std::string>(ext_obj, "extension");
+    for (const auto arch : arches)
+    {
+        auto & arch_extensions =
+            extensions_.try_emplace(arch, arch, unknown_extension_action_).first->second;
 
-            std::vector<uint32_t> arches;
-
-            const char* multiarch_key = getMultiArchKey_();
-
-            if (multiarch_key)
+        if constexpr (is_normal_extension)
+        {
+            if (auto json_it = ext_obj.find("json"); json_it != ext_obj.end())
             {
-                if (const auto it = ext_obj.find(multiarch_key); it != ext_obj.end())
-                {
-                    arches = getMultiArchVector_(it->value());
-                }
-                else
-                {
-                    throw MissingRequiredJSONKeyException(multiarch_key);
-                }
+#ifdef USE_NLOHMANN_JSON
+                arch_extensions.addExtension(ext, json_it.value().get<std::string>());
+#else
+                arch_extensions.addExtension(ext, json_it->value().as_string());
+#endif
             }
             else
             {
-                arches.emplace_back(0);
-            }
-
-            for (const auto arch : arches)
-            {
-                auto & arch_extensions =
-                    extensions_.try_emplace(arch, arch, unknown_extension_action_).first->second;
-
-                if constexpr (is_normal_extension)
-                {
-                    if (auto json_it = ext_obj.find("json"); json_it != ext_obj.end())
-                    {
-                        arch_extensions.addExtension(ext, json_it->value().as_string());
-                    }
-                    else
-                    {
-                        arch_extensions.addExtension(ext);
-                    }
-                }
-                else if constexpr (is_config_extension)
-                {
-                    arch_extensions.addConfigExtension(ext);
-                }
-
-                processArchSpecificExtensionInfo_(arch_extensions, ext, ext_obj, extension_type);
-                processOptionalDependency_<is_normal_extension, DependencyType::META>(
-                    arch_extensions, ext, ext_obj);
-                processOptionalDependency_<is_normal_extension, DependencyType::ALIAS>(
-                    arch_extensions, ext, ext_obj);
-                processOptionalDependency_<is_normal_extension, DependencyType::ENABLES>(
-                    arch_extensions, ext, ext_obj);
-                processOptionalDependency_<is_normal_extension, DependencyType::ENABLING>(
-                    arch_extensions, ext, ext_obj);
-                processRule_<is_normal_extension, RuleType::REQUIRED>(arch_extensions, ext,
-                                                                      ext_obj);
-                processRule_<is_normal_extension, RuleType::CONFLICT>(arch_extensions, ext,
-                                                                      ext_obj);
+                arch_extensions.addExtension(ext);
             }
         }
+        else if constexpr (is_config_extension)
+        {
+            arch_extensions.addConfigExtension(ext);
+        }
+
+        processArchSpecificExtensionInfo_(arch_extensions, ext, ext_obj, extension_type);
+        processOptionalDependency_<is_normal_extension, DependencyType::META>(arch_extensions, ext, ext_obj);
+        processOptionalDependency_<is_normal_extension, DependencyType::ALIAS>(arch_extensions, ext, ext_obj);
+        processOptionalDependency_<is_normal_extension, DependencyType::ENABLES>(arch_extensions, ext, ext_obj);
+        processOptionalDependency_<is_normal_extension, DependencyType::ENABLING>(arch_extensions, ext, ext_obj);
+        processRule_<is_normal_extension, RuleType::REQUIRED>(arch_extensions, ext, ext_obj);
+        processRule_<is_normal_extension, RuleType::CONFLICT>(arch_extensions, ext, ext_obj);
+    }
+}
 
         void assertISASpecInitialized_() const
         {
@@ -1364,48 +1656,123 @@ namespace mavis::extension_manager
         ExtensionManager(ExtensionManager &&) = default;
         virtual ~ExtensionManager() = default;
 
-        void setISASpecJSON(const std::string & jfile, const std::string & mavis_json_dir)
+//        void setISASpecJSON(const std::string & jfile, const std::string & mavis_json_dir)
+//        {
+//            mavis_json_dir_ = mavis_json_dir;
+//
+//            const json_value json = mavis::parseJSONWithException<BadISAFile>(jfile);
+//
+//            try
+//            {
+//                const auto& jobj = json.as_object();
+//
+//                if (auto meta_extensions_it = jobj.find("meta_extensions");
+//                    meta_extensions_it != jobj.end())
+//                {
+//                    for (const auto & meta_ext_obj : meta_extensions_it->value().as_array())
+//                    {
+//                        processExtension_<ExtensionType::META>(meta_ext_obj.as_object());
+//                    }
+//                }
+//
+//                if (auto config_extensions_it = jobj.find("config_extensions");
+//                    config_extensions_it != jobj.end())
+//                {
+//                    for (const auto & config_ext_obj : config_extensions_it->value().as_array())
+//                    {
+//                        processExtension_<ExtensionType::CONFIG>(config_ext_obj.as_object());
+//                    }
+//                }
+//
+//                if (auto extensions_it = jobj.find("extensions"); extensions_it != jobj.end())
+//                {
+//                    for (const auto & ext_obj : extensions_it->value().as_array())
+//                    {
+//                        processExtension_<ExtensionType::NORMAL>(ext_obj.as_object());
+//                    }
+//                }
+//            }
+//            catch (const ExtensionManagerException &)
+//            {
+//                std::cerr << "Error parsing file " << jfile << std::endl;
+//                throw;
+//            }
+//        }
+
+void setISASpecJSON(const std::string & jfile, const std::string & mavis_json_dir)
+{
+    mavis_json_dir_ = mavis_json_dir;
+
+    const json_value json = mavis::parseJSONWithException<BadISAFile>(jfile);
+
+    try
+    {
+#ifdef USE_NLOHMANN_JSON
+        const auto & jobj = json;
+#else
+        const auto & jobj = json.as_object();
+#endif
+
+#ifdef USE_NLOHMANN_JSON
+        if (auto meta_extensions_it = jobj.find("meta_extensions");
+            meta_extensions_it != jobj.end())
         {
-            mavis_json_dir_ = mavis_json_dir;
-
-            const boost::json::value json = parseJSONWithException<BadISAFile>(jfile);
-
-            try
+            for (const auto & meta_ext_obj : meta_extensions_it.value())
             {
-                const auto& jobj = json.as_object();
-
-                if (auto meta_extensions_it = jobj.find("meta_extensions");
-                    meta_extensions_it != jobj.end())
-                {
-                    for (const auto & meta_ext_obj : meta_extensions_it->value().as_array())
-                    {
-                        processExtension_<ExtensionType::META>(meta_ext_obj.as_object());
-                    }
-                }
-
-                if (auto config_extensions_it = jobj.find("config_extensions");
-                    config_extensions_it != jobj.end())
-                {
-                    for (const auto & config_ext_obj : config_extensions_it->value().as_array())
-                    {
-                        processExtension_<ExtensionType::CONFIG>(config_ext_obj.as_object());
-                    }
-                }
-
-                if (auto extensions_it = jobj.find("extensions"); extensions_it != jobj.end())
-                {
-                    for (const auto & ext_obj : extensions_it->value().as_array())
-                    {
-                        processExtension_<ExtensionType::NORMAL>(ext_obj.as_object());
-                    }
-                }
-            }
-            catch (const ExtensionManagerException &)
-            {
-                std::cerr << "Error parsing file " << jfile << std::endl;
-                throw;
+                processExtension_<ExtensionType::META>(meta_ext_obj);
             }
         }
+
+        if (auto config_extensions_it = jobj.find("config_extensions");
+            config_extensions_it != jobj.end())
+        {
+            for (const auto & config_ext_obj : config_extensions_it.value())
+            {
+                processExtension_<ExtensionType::CONFIG>(config_ext_obj);
+            }
+        }
+
+        if (auto extensions_it = jobj.find("extensions"); extensions_it != jobj.end())
+        {
+            for (const auto & ext_obj : extensions_it.value())
+            {
+                processExtension_<ExtensionType::NORMAL>(ext_obj);
+            }
+        }
+#else
+        if (auto meta_extensions_it = jobj.find("meta_extensions");
+            meta_extensions_it != jobj.end())
+        {
+            for (const auto & meta_ext_obj : meta_extensions_it->value().as_array())
+            {
+                processExtension_<ExtensionType::META>(meta_ext_obj.as_object());
+            }
+        }
+
+        if (auto config_extensions_it = jobj.find("config_extensions");
+            config_extensions_it != jobj.end())
+        {
+            for (const auto & config_ext_obj : config_extensions_it->value().as_array())
+            {
+                processExtension_<ExtensionType::CONFIG>(config_ext_obj.as_object());
+            }
+        }
+
+        if (auto extensions_it = jobj.find("extensions"); extensions_it != jobj.end())
+        {
+            for (const auto & ext_obj : extensions_it->value().as_array())
+            {
+                processExtension_<ExtensionType::NORMAL>(ext_obj.as_object());
+            }
+        }
+#endif
+    }
+    catch (const ExtensionManagerException &)
+    {
+        std::cerr << "Error parsing file " << jfile << std::endl;
+        throw;
+    }
+}
 
         void setISAFromELF(const std::string & elf) { setISA(getISAFromELF_(elf)); }
 

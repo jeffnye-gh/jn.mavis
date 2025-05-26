@@ -1,13 +1,25 @@
 #pragma once
 
+#include <fstream>
+#include <string_view>
+
+#ifdef USE_NLOHMANN_JSON
+#include <nlohmann/json.hpp>
+using json_object = nlohmann::json;
+#else
 #include <boost/json.hpp>
+using json_object = boost::json::object;
+#endif
+
 #include "DecoderTypes.h"
 #include "DecoderExceptions.h"
-//#include "IFactoryBuilder.h"
 #include "InstMetaData.h"
 #include "Disassembler.hpp"
 #include <memory>
 #include <array>
+#include <vector>
+#include <string>
+#include <iostream>
 
 namespace mavis {
 
@@ -15,11 +27,10 @@ template<typename InstType, typename AnnotationType>
 class Overlay
 {
 private:
-    using json = boost::json::object;
+    using json = json_object;
     typedef typename std::vector<std::string> FieldNameListType;
     typedef typename std::vector<std::string> MatchMaskValType;
 
-    // TODO: Move this to a central place in mavis
     constexpr uint32_t count1Bits_(const uint64_t n) const
     {
         uint64_t x = n - ((n >> 1) & 0x5555555555555555ull);
@@ -34,11 +45,19 @@ private:
 public:
     typedef std::shared_ptr<Overlay<InstType, AnnotationType>> PtrType;
 
-public:
-    Overlay(const std::string& mnemonic, const json& olay, const json& inst, const ExtractorIF::PtrType& xform_extractor) :
-        mnemonic_(mnemonic), json_inst_(inst), xform_extractor_(xform_extractor)
+    Overlay(const std::string& mnemonic, const json& olay, const json& inst, const ExtractorIF::PtrType& xform_extractor)
+        : mnemonic_(mnemonic), json_inst_(inst), xform_extractor_(xform_extractor)
     {
-        // Parse the JSON overlay section to set up this object
+#ifdef USE_NLOHMANN_JSON
+        if (olay.contains("base")) {
+            base_mnemonic_ = olay["base"].get<std::string>();
+        } else {
+            throw BuildErrorOverlayMissingBase(mnemonic);
+        }
+
+        if (olay.contains("match")) {
+            MatchMaskValType mlist = olay["match"].get<MatchMaskValType>();
+#else
         if (const auto it = olay.find("base"); it != olay.end()) {
             base_mnemonic_ = boost::json::value_to<std::string>(it->value());
         } else {
@@ -47,6 +66,7 @@ public:
 
         if (const auto it = olay.find("match"); it != olay.end()) {
             MatchMaskValType mlist = boost::json::value_to<MatchMaskValType>(it->value());
+#endif
             if (mlist.size() != 2) {
                 throw BuildErrorOverlayBadMatchSpec(mnemonic);
             }
@@ -57,42 +77,11 @@ public:
             throw BuildErrorOverlayMissingMatch(mnemonic);
         }
 
-        // TODO: Handle any disassembler overrides here. For now, we just create an
-        // empty disassembler
         dasm_ = std::make_shared<Disassembler>();
-
-#if 0
-        // Ask the builder for the base instruction's meta data information
-        // We'll make a copy of this to use as our own meta data, and update it with
-        // any changes from our JSON spec
-        InstMetaData::PtrType base_meta = builder_.findMetaData(base_mnemonic_);
-        meta_ = base_meta->clone();
-        meta_->parseOverrides(inst);
-
-        // Register this mnemonic with the builder's UID registry
-        uid_ = builder_.registerInst(mnemonic);
-
-        // Attempt to find the annotation for the overlay.
-        // If not found, we use the annotation for the base
-        anno_ = builder_.findAnnotation(mnemonic);
-        if (anno_ == nullptr) {
-            anno_ = builder_.findAnnotation(base_mnemonic_);
-        }
-        if (anno_ == nullptr) {
-            // throw
-        }
-#endif
     }
 
-    std::string getMnemonic() const
-    {
-        return mnemonic_;
-    }
-
-    std::string getBaseMnemonic() const
-    {
-        return base_mnemonic_;
-    }
+    std::string getMnemonic() const { return mnemonic_; }
+    std::string getBaseMnemonic() const { return base_mnemonic_; }
 
     void setBaseMetaData(const InstMetaData::PtrType& base_meta)
     {
@@ -100,52 +89,19 @@ public:
         meta_->parseOverrides(json_inst_);
     }
 
-    // Return the override extractor (xform) is supplied in the
-    // JSON, or nullptr if no override
-    ExtractorIF::PtrType getExtractor() const
-    {
-        return xform_extractor_;
-    }
+    ExtractorIF::PtrType getExtractor() const { return xform_extractor_; }
+    InstMetaData::PtrType getMetaData() const { return meta_; }
+    DisassemblerIF::PtrType getDasm() const { return dasm_; }
 
-    InstMetaData::PtrType getMetaData() const
-    {
-        return meta_;
-    }
+    void setUID(InstructionUniqueID uid) { uid_ = uid; }
+    InstructionUniqueID getUID() const { return uid_; }
 
-    DisassemblerIF::PtrType getDasm() const
-    {
-        return dasm_;
-    }
+    void setAnnotation(typename AnnotationType::PtrType& panno) { anno_ = panno; }
+    typename AnnotationType::PtrType getAnnotation() const { return anno_; }
 
-    void setUID(InstructionUniqueID uid)
-    {
-        uid_ = uid;
-    }
+    bool isMatch(Opcode icode) const { return ((icode & match_mask_) == match_value_); }
 
-    InstructionUniqueID getUID() const
-    {
-        return uid_;
-    }
-
-    void setAnnotation(typename AnnotationType::PtrType& panno)
-    {
-        anno_ = panno;
-    }
-
-    typename AnnotationType::PtrType getAnnotation() const
-    {
-        return anno_;
-    }
-
-    bool isMatch(Opcode icode) const
-    {
-        return ((icode & match_mask_) == match_value_);
-    }
-
-    uint32_t getNumMaskBits() const
-    {
-        return n_match_mask_bits_;
-    }
+    uint32_t getNumMaskBits() const { return n_match_mask_bits_; }
 
     void print(std::ostream& os) const
     {
@@ -188,3 +144,4 @@ inline std::ostream& operator<<(std::ostream& os, const Overlay<InstType, Annota
 }
 
 } // namespace mavis
+

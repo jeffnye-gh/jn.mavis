@@ -26,4 +26,9 @@ file(CREATE_LINK ${CMAKE_SOURCE_DIR}/test/basic/golden.out ${CMAKE_CURRENT_BINAR
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_executable(Mavis main.cpp)
-target_link_libraries (Mavis mavis boost_json)
+
+if(USE_NLOHMANN_JSON)
+  target_link_libraries (Mavis mavis)
+else()
+  target_link_libraries (Mavis mavis boost_json)
+endif()
